@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(SongStore.self) private var store
     @State private var pagerPosition: Int? = 0
     @State private var pageFraction: CGFloat = 0
+    @FocusState private var titleFocused: Bool
 
     private let tabs = ["Song", "Neck", "Key", "Next"]
 
@@ -12,19 +13,20 @@ struct RootView: View {
             let safeTop = geo.safeAreaInsets.top
             let safeBottom = geo.safeAreaInsets.bottom
             ZStack(alignment: .top) {
-                Color.stage.ignoresSafeArea()
-                AmbientBackground().ignoresSafeArea()
-
                 VStack(spacing: 0) {
-                    HeaderView()
+                    HeaderView(titleFocused: $titleFocused)
                         .padding(.horizontal, 18)
                         .padding(.top, max(12, safeTop - 4))
-                    tabBar
-                        .padding(.horizontal, 18)
-                        .padding(.top, 12)
-                    pager
-                        .padding(.top, 12)
+                    VStack(spacing: 0) {
+                        tabBar
+                            .padding(.horizontal, 18)
+                            .padding(.top, 12)
+                        pager
+                            .padding(.top, 12)
+                    }
+                    .overlay { keyboardDismissLayer }
                 }
+                .frame(width: geo.size.width)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
 
                 if let toast = store.toast {
@@ -37,14 +39,25 @@ struct RootView: View {
                 VStack {
                     Spacer()
                     MiniPlayer()
+                        .overlay { keyboardDismissLayer }
                         .padding(.horizontal, 12)
                         .padding(.bottom, safeBottom > 0 ? 30 : 12)
                 }
+                .frame(width: geo.size.width)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .ignoresSafeArea(.keyboard)
                 .zIndex(30)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
             .animation(.bounce, value: store.toast)
+        }
+        // Background sits behind the layout so the oversized blur blobs can't widen it.
+        .background {
+            ZStack {
+                Color.stage
+                AmbientBackground()
+            }
+            .ignoresSafeArea()
         }
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
@@ -52,6 +65,15 @@ struct RootView: View {
             guard let req else { return }
             withAnimation(.settle) { pagerPosition = req }
             store.panelRequest = nil
+        }
+    }
+
+    /// While the title is being edited, a tap anywhere below the header just closes the keyboard.
+    @ViewBuilder private var keyboardDismissLayer: some View {
+        if titleFocused {
+            Color.white.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture { titleFocused = false }
         }
     }
 
@@ -118,36 +140,40 @@ struct AmbientBackground: View {
     var body: some View {
         let pal = store.palette
         let cur = store.current, nxt = store.nextChord
-        let pos = store.pos
-        ZStack(alignment: .topLeading) {
-            Circle()
-                .fill(pal.col(cur.root, 0.55, 0.2))
-                .frame(width: 440, height: 440)
-                .blur(radius: 80)
-                .opacity(0.75)
-                .scaleEffect(store.lit ? 1.08 : 1)
-                .offset(x: -120 + CGFloat(pos % 3) * 24, y: -140 + CGFloat(pos % 2) * 30)
-                .animation(.easeInOut(duration: 1.2), value: cur.root)
-                .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 2.4), value: pos)
-                .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 2.4), value: store.lit)
+        let pos = CGFloat(store.pos)
+        GeometryReader { g in
+            ZStack {
+                Circle()
+                    .fill(pal.col(cur.root, 0.55, 0.2))
+                    .frame(width: 440, height: 440)
+                    .blur(radius: 80)
+                    .opacity(0.75)
+                    .scaleEffect(store.lit ? 1.08 : 1)
+                    .position(x: -120 + 220 + pos.truncatingRemainder(dividingBy: 3) * 24,
+                              y: -140 + 220 + pos.truncatingRemainder(dividingBy: 2) * 30)
+                    .animation(.easeInOut(duration: 1.2), value: cur.root)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 2.4), value: store.pos)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 2.4), value: store.lit)
 
-            GeometryReader { g in
                 Circle()
                     .fill(pal.col(nxt.root, 0.5, 0.2))
                     .frame(width: 380, height: 380)
                     .blur(radius: 90)
                     .opacity(0.55)
-                    .offset(x: g.size.width - 380 + 160 - CGFloat(pos % 4) * 18, y: 160 + CGFloat(pos % 3) * 22)
+                    .position(x: g.size.width + 160 - 190 - pos.truncatingRemainder(dividingBy: 4) * 18,
+                              y: 160 + 190 + pos.truncatingRemainder(dividingBy: 3) * 22)
                     .animation(.easeInOut(duration: 1.6), value: nxt.root)
-                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 3), value: pos)
-            }
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 3), value: store.pos)
 
-            LinearGradient(stops: [
-                .init(color: Color.stage.opacity(0.15), location: 0),
-                .init(color: Color.stage.opacity(0.55), location: 0.45),
-                .init(color: Color.stage.opacity(0.85), location: 1),
-            ], startPoint: .top, endPoint: .bottom)
+                LinearGradient(stops: [
+                    .init(color: Color.stage.opacity(0.15), location: 0),
+                    .init(color: Color.stage.opacity(0.55), location: 0.45),
+                    .init(color: Color.stage.opacity(0.85), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            }
+            .frame(width: g.size.width, height: g.size.height)
         }
+        .clipped()
         .opacity(store.playing ? 1 : 0.8)
         .animation(.easeInOut(duration: 0.6), value: store.playing)
         .allowsHitTesting(false)

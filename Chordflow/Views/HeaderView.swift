@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HeaderView: View {
     @Environment(SongStore.self) private var store
+    var titleFocused: FocusState<Bool>.Binding
 
     var body: some View {
         @Bindable var store = store
@@ -14,6 +15,7 @@ struct HeaderView: View {
                     .foregroundStyle(.white)
                     .tint(.accent)
                     .submitLabel(.done)
+                    .focused(titleFocused)
             }
 
             HStack(spacing: 8) {

@@ -30,22 +30,22 @@ final class SongStore {
     var bpm = 92
     var sections: [SongSection] = [
         SongSection(id: "s1", name: "Verse", chords: [
-            Chord(id: "c1", root: 7, q: .maj, lyric: "City lights are"),
-            Chord(id: "c2", root: 2, q: .maj, lyric: "fading slow"),
-            Chord(id: "c3", root: 4, q: .min, lyric: "I keep driving"),
-            Chord(id: "c4", root: 0, q: .maj, lyric: "nowhere to go"),
+            Chord(id: "c1", root: 7, q: .maj),
+            Chord(id: "c2", root: 2, q: .maj),
+            Chord(id: "c3", root: 4, q: .min),
+            Chord(id: "c4", root: 0, q: .maj),
         ]),
         SongSection(id: "s2", name: "Chorus", chords: [
-            Chord(id: "c5", root: 0, q: .maj, lyric: "Stay"),
-            Chord(id: "c6", root: 7, q: .maj, lyric: "with me"),
-            Chord(id: "c7", root: 2, q: .maj, lyric: "under the"),
-            Chord(id: "c8", root: 4, q: .min, lyric: "neon glow"),
+            Chord(id: "c5", root: 0, q: .maj),
+            Chord(id: "c6", root: 7, q: .maj),
+            Chord(id: "c7", root: 2, q: .maj),
+            Chord(id: "c8", root: 4, q: .min),
         ]),
         SongSection(id: "s3", name: "Bridge", chords: [
-            Chord(id: "c9", root: 9, q: .m7, lyric: "If the night"),
-            Chord(id: "c10", root: 0, q: .maj7, lyric: "won't let go"),
-            Chord(id: "c11", root: 2, q: .sus4, lyric: "hold on"),
-            Chord(id: "c12", root: 2, q: .maj, lyric: "tonight"),
+            Chord(id: "c9", root: 9, q: .m7),
+            Chord(id: "c10", root: 0, q: .maj7),
+            Chord(id: "c11", root: 2, q: .sus4),
+            Chord(id: "c12", root: 2, q: .maj),
         ]),
     ]
 
@@ -256,8 +256,6 @@ final class SongStore {
             }
         }
     }
-
-    func setLyric(_ id: String, _ text: String) { updateChord(id) { $0.lyric = text } }
 
     func setQuality(_ q: Quality) {
         let cur = current

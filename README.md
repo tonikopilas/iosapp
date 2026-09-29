@@ -16,7 +16,7 @@ The project uses a folder-synchronized group. Any file you add under `Chordflow/
 
 | Panel | What it does |
 |---|---|
-| **Song** | Verse, Chorus and Bridge cards made of chord chips, each with its own lyric line. Tap a chip to hear it. Hold and drag to reorder it within its section. A red dot marks chords outside the key. While playing, the current chip lights up and a bar fills across it on each beat. Use **Suggest** to add a chord to a section and **Add section** to add a new section. |
+| **Song** | Verse, Chorus and Bridge cards made of chord chips. Tap a chip to hear it. Hold and drag to reorder it within its section. A red dot marks chords outside the key. While playing, the current chip lights up and a bar fills across it on each beat. Use **Suggest** to add a chord to a section and **Add section** to add a new section. |
 | **Neck** | Fretboard that switches between *Chord shape* and *Full scale*. Finger dots spring to their new frets with a staggered animation and glow on each strum. You can change the chord quality, step to the previous or next chord, and tap any dot to hear that note. |
 | **Key** | Circle of fifths where the chords in your key are lit. Tap a wedge to move the whole song to that key, or transpose it up or down. Also shows the mode picker, the scale notes and the chords in the key (tap to hear, **+** to add). |
 | **Next** | Suggestions for the next chord: strong diatonic moves, plus borrowed or spicy options. Each one has a short reason and shows the notes it shares with the current chord. Tap to hear one and **Add** to drop it in. |

@@ -204,7 +204,6 @@ struct Chord: Identifiable, Equatable, Codable {
     var id: String
     var root: Int
     var q: Quality
-    var lyric: String = ""
 
     var pitchClasses: [Int] { q.intervals.map { m12(root + $0) } }
 }

@@ -57,7 +57,6 @@ struct SongPanel: View {
                 .padding(.bottom, 130)
             }
             .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { box.viewport = $0 }
             .onChange(of: store.sel.chordID) { _, cid in
                 guard store.playing, let cid, let r = box.frames[cid] else { return }
@@ -113,7 +112,7 @@ struct SongPanel: View {
                         }
                         .foregroundStyle(Color.muted)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 98)
+                        .frame(height: 80)
                         .overlay(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .strokeBorder(Color.paperDash, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
@@ -174,16 +173,6 @@ struct SongPanel: View {
                 .padding(EdgeInsets(top: 9, leading: 9, bottom: 8, trailing: 9))
                 .allowsHitTesting(false)
 
-                TextField("", text: Binding(get: { c.lyric }, set: { store.setLyric(c.id, $0) }),
-                          prompt: Text("lyric…").foregroundStyle(fg.opacity(0.4)))
-                    .font(.onest(11.5, .medium))
-                    .foregroundStyle(fg)
-                    .tint(.accent)
-                    .lineLimit(1)
-                    .submitLabel(.done)
-                    .padding(.horizontal, 9)
-                    .padding(.bottom, 8)
-
                 // Beat progress
                 GeometryReader { g in
                     Rectangle()
@@ -194,7 +183,7 @@ struct SongPanel: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(height: 98)
+            .frame(height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .animation(.easeInOut(duration: 0.5), value: isPlay)
             .overlay(

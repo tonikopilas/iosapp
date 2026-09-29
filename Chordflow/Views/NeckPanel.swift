@@ -27,7 +27,6 @@ struct NeckPanel: View {
         let pal = store.palette
         let cur = store.current
         let sec = store.currentSection
-        let lyric = cur.chord.lyric
         return HStack(alignment: .bottom, spacing: 12) {
             Text(store.chordName(cur))
                 .font(.onest(56, .black))
@@ -44,7 +43,7 @@ struct NeckPanel: View {
                 Text("\(store.numeral(cur.root, cur.q)) · \(store.keyName)")
                     .font(.mono(11, .bold))
                     .foregroundStyle(Color.mutedDeep)
-                Text(sec.map { $0.name + (lyric.isEmpty ? "" : " · “\(lyric)”") } ?? "")
+                Text(sec?.name ?? "")
                     .font(.onest(12, .semibold))
                     .foregroundStyle(Color.muted)
                     .lineLimit(1)
