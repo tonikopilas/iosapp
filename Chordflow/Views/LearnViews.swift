@@ -72,7 +72,7 @@ struct LessonSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 SheetHeader(title: t.title, subtitle: "THEORY") { dismiss() }
                     .padding(.horizontal, -14)
-                LessonBody(topic: t) { withAnimation(.settle) { topic = $0 } }
+                LessonBody(topic: t) { next in withAnimation(.settle) { topic = next } }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 30)
