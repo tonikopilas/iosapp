@@ -41,3 +41,60 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+  ipa:
+    name: Build unsigned IPA (iPhone, for SideStore)
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Unsigned device build: SideStore re-signs it on the phone with your free Apple ID.
+      # The build number is the run number, so SideStore sees each new build as an update.
+      - name: Build for iPhone (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Chordflow.xcodeproj \
+            -target Chordflow \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            SYMROOT="$PWD/build" \
+            | tee build-ipa.log
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Release-iphoneos/Chordflow.app Payload/
+          zip -qry Chordflow.ipa Payload
+          ls -lh Chordflow.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chordflow-ipa
+          path: Chordflow.ipa
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-ipa-log
+          path: build-ipa.log
+
+      # Rolling "latest" release: a stable URL to open in Safari on the iPhone.
+      - name: Publish to "latest" release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest Chordflow.ipa \
+            --title "Chordflow (latest build)" \
+            --target "$GITHUB_SHA" \
+            --notes "Unsigned IPA built from ${GITHUB_SHA::7} (build ${{ github.run_number }}). Install with SideStore: open SideStore → My Apps → + → pick Chordflow.ipa."
