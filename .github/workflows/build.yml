@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (iOS Simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Chordflow.xcodeproj \
+            -target Chordflow \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            SYMROOT="$PWD/build" \
+            | tee build.log
+
+      - name: Upload app
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chordflow-simulator
+          path: build/Debug-iphonesimulator/Chordflow.app
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
