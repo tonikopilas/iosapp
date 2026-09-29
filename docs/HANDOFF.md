@@ -66,7 +66,11 @@ Chordflow je nativna iOS aplikacija za pisanje pjesama na gitari (SwiftUI).
 2. **Brisanje sekcija i prazna stanja:** brisanje sekcija postoji u izborniku •••, ali treba ga učiniti očitijim. Treba dodati prazno stanje kad nema pjesama ili sekcija.
 3. **Lakše namještanje taktova:** npr. brzi +/- ili drag direktno na akordu, bez ulaska u editor.
 4. **Bolji dizajn fretboarda i prepoznavanje akorda:** korisnik tapka tonove na fretboardu, a aplikacija prepozna koji akord daju.
-5. **Tabulature preko fretboarda:** korisnik snima što svira, a aplikacija to analizira i kaže ima li smisla, u kojem je tonalitetu i kako dalje.
+5. **Pisanje tabulature preko fretboarda (aranžmani):** ništa se ne snima mikrofonom. Korisnik ručno upisuje tabulaturu, npr. aranžman:
+   - tapka pozicije (žica + prag) na fretboardu, redom kako se sviraju
+   - note idu u tab po vremenu i taktovima, s trajanjem nota i više nota odjednom (akordi, dvoglasi)
+   - tab se može reproducirati i urediti
+   - aplikacija analizira napisano: tonalitet, akordi koje note čine, ima li smisla, prijedlozi kako dalje
 
 ## Napomene za rad
 
