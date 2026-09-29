@@ -7,15 +7,26 @@ struct HeaderView: View {
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Eyebrow(text: "NOW WRITING", tracking: 0.14, color: .white.opacity(0.6))
-                TextField("", text: $store.title)
-                    .font(.onest(32, .black))
-                    .em(-0.035, 32)
-                    .foregroundStyle(.white)
-                    .tint(.accent)
-                    .submitLabel(.done)
-                    .focused(titleFocused)
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Eyebrow(text: "NOW WRITING", tracking: 0.14, color: .white.opacity(0.6))
+                    TextField("", text: $store.title, prompt: Text("Untitled").foregroundStyle(.white.opacity(0.4)))
+                        .font(.onest(32, .black))
+                        .em(-0.035, 32)
+                        .foregroundStyle(.white)
+                        .tint(.accent)
+                        .submitLabel(.done)
+                        .focused(titleFocused)
+                }
+                iconButton("music.note.list", label: "Your songs") {
+                    titleFocused.wrappedValue = false
+                    store.refreshLibrary()
+                    store.showLibrary = true
+                }
+                iconButton("slider.horizontal.3", label: "Song setup") {
+                    titleFocused.wrappedValue = false
+                    store.showSetup = true
+                }
             }
 
             HStack(spacing: 8) {
@@ -45,7 +56,7 @@ struct HeaderView: View {
                 .frame(height: 34)
                 .glass(Capsule())
 
-                Button { store.click.toggle() } label: {
+                Button { store.setClick(!store.click) } label: {
                     Text("Click")
                         .font(.onest(12, .bold))
                         .foregroundStyle(store.click ? Color.ink : .white)
@@ -59,6 +70,19 @@ struct HeaderView: View {
             .buttonStyle(.plain)
         }
         .foregroundStyle(.white)
+    }
+
+    private func iconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .glass(Circle())
+        }
+        .pressable(0.9)
+        .padding(.bottom, 2)
+        .accessibilityLabel(label)
     }
 
     private func stepButton(_ label: String, action: @escaping () -> Void) -> some View {

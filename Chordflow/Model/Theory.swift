@@ -204,14 +204,44 @@ struct Chord: Identifiable, Equatable, Codable {
     var id: String
     var root: Int
     var q: Quality
+    /// Length in bars (0.5, 1, 2, 4 …).
+    var bars: Double = 1
 
     var pitchClasses: [Int] { q.intervals.map { m12(root + $0) } }
+
+    init(id: String, root: Int, q: Quality, bars: Double = 1) {
+        self.id = id; self.root = root; self.q = q; self.bars = bars
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        root = try c.decode(Int.self, forKey: .root)
+        q = try c.decode(Quality.self, forKey: .q)
+        bars = try c.decodeIfPresent(Double.self, forKey: .bars) ?? 1
+    }
 }
 
 struct SongSection: Identifiable, Equatable, Codable {
     var id: String
     var name: String
     var chords: [Chord]
+    /// How many times the section plays in a row.
+    var repeats: Int = 1
+
+    init(id: String, name: String, chords: [Chord], repeats: Int = 1) {
+        self.id = id; self.name = name; self.chords = chords; self.repeats = repeats
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        chords = try c.decode([Chord].self, forKey: .chords)
+        repeats = try c.decodeIfPresent(Int.self, forKey: .repeats) ?? 1
+    }
+
+    var bars: Double { chords.reduce(0) { $0 + $1.bars } }
 }
 
 /// A chord flattened out of its section, remembering where it lives.
@@ -221,4 +251,76 @@ struct PlacedChord: Identifiable, Equatable {
     var id: String { chord.id }
     var root: Int { chord.root }
     var q: Quality { chord.q }
+}
+
+enum TimeSignature: String, CaseIterable, Codable, Identifiable {
+    case twoFour = "2/4", threeFour = "3/4", fourFour = "4/4", sixEight = "6/8"
+    var id: String { rawValue }
+    var beatsPerBar: Int {
+        switch self {
+        case .twoFour: 2
+        case .threeFour: 3
+        case .fourFour: 4
+        case .sixEight: 6
+        }
+    }
+    /// Beats that get a medium accent (6/8 pulses in two).
+    func isSecondaryAccent(_ beat: Int) -> Bool { self == .sixEight && beat == 3 }
+}
+
+enum Sound: String, CaseIterable, Codable, Identifiable {
+    case guitar, piano, pad
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .guitar: "Guitar"
+        case .piano: "Keys"
+        case .pad: "Pad"
+        }
+    }
+}
+
+enum PlayStyle: String, CaseIterable, Codable, Identifiable {
+    case strum, pulse, arpeggio, block
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .strum: "Strum"
+        case .pulse: "Pulse"
+        case .arpeggio: "Arpeggio"
+        case .block: "Block"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .strum: "One strum per chord, let it ring."
+        case .pulse: "Down-up strums on every beat."
+        case .arpeggio: "Picks the notes one by one."
+        case .block: "All notes at once, like a pianist."
+        }
+    }
+}
+
+/// Everything that gets saved for one song.
+struct Song: Identifiable, Equatable, Codable {
+    var id = UUID()
+    var title: String
+    var key: Int
+    var mode: Mode
+    var bpm: Int
+    var timeSignature: TimeSignature = .fourFour
+    var sound: Sound = .guitar
+    var style: PlayStyle = .strum
+    var sections: [SongSection]
+    var updatedAt = Date()
+
+    var totalBars: Double { sections.reduce(0) { $0 + $1.bars * Double($1.repeats) } }
+}
+
+/// "½", "1", "2", "1½" …
+func formatBars(_ b: Double) -> String {
+    let whole = Int(b)
+    let half = b - Double(whole) >= 0.5
+    if whole == 0 { return half ? "½" : "0" }
+    return "\(whole)" + (half ? "½" : "")
 }

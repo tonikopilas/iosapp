@@ -61,6 +61,24 @@ struct RootView: View {
         }
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
+        .sheet(isPresented: Binding(get: { store.editingChordID != nil },
+                                    set: { if !$0 { store.editingChordID = nil } })) {
+            if let id = store.editingChordID {
+                ChordEditorSheet(chordID: id)
+                    .environment(store)
+                    .chordflowSheet([.medium, .large])
+            }
+        }
+        .sheet(isPresented: Binding(get: { store.showSetup }, set: { store.showSetup = $0 })) {
+            SongSetupSheet()
+                .environment(store)
+                .chordflowSheet([.medium, .large])
+        }
+        .sheet(isPresented: Binding(get: { store.showLibrary }, set: { store.showLibrary = $0 })) {
+            LibrarySheet()
+                .environment(store)
+                .chordflowSheet()
+        }
         .onChange(of: store.panelRequest) { _, req in
             guard let req else { return }
             withAnimation(.settle) { pagerPosition = req }
@@ -130,7 +148,6 @@ struct RootView: View {
         .scrollIndicators(.hidden)
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $pagerPosition)
-        .scrollDisabled(store.dragID != nil)
     }
 }
 

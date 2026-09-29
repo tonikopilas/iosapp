@@ -28,6 +28,13 @@ jobs:
             SYMROOT="$PWD/build" \
             | tee build.log
 
+      - name: Report compile errors
+        if: failure()
+        run: |
+          grep -E "error:" build.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+
       - name: Upload app
         if: success()
         uses: actions/upload-artifact@v4
@@ -66,6 +73,13 @@ jobs:
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             SYMROOT="$PWD/build" \
             | tee build-ipa.log
+
+      - name: Report compile errors
+        if: failure()
+        run: |
+          grep -E "error:" build-ipa.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
 
       - name: Package IPA
         run: |

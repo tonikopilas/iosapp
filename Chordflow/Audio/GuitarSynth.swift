@@ -52,18 +52,41 @@ final class GuitarSynth {
     }
 
     /// Plucks a single note. `delay` is seconds from now.
+    /// Instrument used for all notes (set from the song's setup).
+    var sound: Sound = .guitar
+
     func pluck(midi: Int, delay: Double = 0.01, duration: Double = 1.8, velocity: Double = 0.2) {
         guard ensureRunning() else { return }
         let f = 440 * pow(2, Double(midi - 69) / 12)
-        strings.schedule(Voice(kind: .pluck, freq: f, delay: delay, duration: duration, velocity: velocity))
+        var v = Voice(kind: .pluck, freq: f, delay: delay, duration: duration, velocity: velocity)
+        switch sound {
+        case .guitar:
+            break
+        case .piano:
+            v.sawMix = 0.18; v.triMix = 1; v.detune = 1.0015
+            v.cutStartMul = 7; v.cutEndMul = 2.2; v.sweep = 0.45
+            v.duration = min(duration, 2.8)
+            v.velocity = velocity * 0.95
+        case .pad:
+            v.sawMix = 0.5; v.triMix = 0; v.saw2Mix = 0.5; v.detune = 1.005
+            v.cutStartMul = 2.6; v.cutEndMul = 2.6; v.sweep = 1
+            v.attack = 0.28; v.sustain = true
+            v.velocity = velocity * 0.55
+        }
+        strings.schedule(v)
     }
 
-    /// Strums a voicing low to high, 24 ms apart.
-    func strum(_ chord: (root: Int, q: Quality), duration: Double = 1.9) {
-        var k = 0
-        for (i, fret) in Theory.voicing(chord.root, chord.q).enumerated() where fret >= 0 {
-            pluck(midi: Theory.tuning[i] + fret, delay: 0.01 + Double(k) * 0.024, duration: duration)
-            k += 1
+    /// MIDI notes of the chord's guitar voicing, low to high.
+    func notes(_ chord: (root: Int, q: Quality)) -> [Int] {
+        Theory.voicing(chord.root, chord.q).enumerated().compactMap { i, f in f >= 0 ? Theory.tuning[i] + f : nil }
+    }
+
+    /// Strums a voicing (low to high, or high to low for an up-strum).
+    func strum(_ chord: (root: Int, q: Quality), duration: Double = 1.9, delay: Double = 0.01,
+               up: Bool = false, spacing: Double = 0.024, velocity: Double = 0.2) {
+        let ns = up ? notes(chord).reversed() : notes(chord)
+        for (k, midi) in ns.enumerated() {
+            pluck(midi: midi, delay: delay + Double(k) * spacing, duration: duration, velocity: velocity)
         }
     }
 
@@ -87,6 +110,18 @@ struct Voice {
     var delay: Double
     var duration: Double
     var velocity: Double
+
+    // Timbre (defaults = guitar): saw + slightly detuned triangle through a sweeping low-pass.
+    var sawMix = 0.32
+    var triMix = 1.0
+    var saw2Mix = 0.0
+    var detune = 1.003
+    var cutStartMul = 9.0
+    var cutEndMul = 1.4
+    var sweep = 0.7
+    var attack = 0.005
+    /// Pads hold their level and release at the end instead of decaying away.
+    var sustain = false
 
     // Render state
     var start: Int64 = 0
@@ -168,27 +203,28 @@ private final class VoiceBus: @unchecked Sendable {
     private func renderPluck(_ v: inout Voice, _ out: UnsafeMutablePointer<Float>, _ from: Int, _ to: Int, _ bufferStart: Int64) {
         let sr = sampleRate
         let f = v.freq
-        let dt1 = f / sr, dt2 = f * 1.003 / sr
-        let cutStart = min(9000, f * 9), cutEnd = max(220, f * 1.4)
+        let dt1 = f / sr, dt2 = f * v.detune / sr
+        let cutStart = min(9000, f * v.cutStartMul), cutEnd = max(220, min(9000, f * v.cutEndMul))
+        let sweep = v.sweep, attack = v.attack
         let k = 1 / 0.8 // 1/Q
         let vel = v.velocity
         var a1 = 0.0, a2 = 0.0, a3 = 0.0
         for i in from..<to {
             let t = Double(bufferStart + Int64(i) - v.start) / sr
             if (i - from) % 16 == 0 {
-                // Low-pass cutoff glides exponentially over 0.7 s (TPT state-variable filter).
-                let cut = t >= 0.7 ? cutEnd : cutStart * pow(cutEnd / cutStart, t / 0.7)
+                // Low-pass cutoff glides exponentially over `sweep` s (TPT state-variable filter).
+                let cut = t >= sweep ? cutEnd : cutStart * pow(cutEnd / cutStart, t / sweep)
                 let g = tan(.pi * min(cut, sr * 0.45) / sr)
                 a1 = 1 / (1 + g * (g + k)); a2 = g * a1; a3 = g * a2
                 v.g = g
             }
-            // Band-limited saw (polyBLEP) + triangle
-            var saw = 2 * v.phase1 - 1
-            saw -= polyBlep(v.phase1, dt1)
+            // Band-limited saws (polyBLEP) + triangle
+            let saw = 2 * v.phase1 - 1 - polyBlep(v.phase1, dt1)
             let tri = 4 * abs(v.phase2 - 0.5) - 1
+            let saw2 = v.saw2Mix > 0 ? 2 * v.phase2 - 1 - polyBlep(v.phase2, dt2) : 0
             v.phase1 += dt1; if v.phase1 >= 1 { v.phase1 -= 1 }
             v.phase2 += dt2; if v.phase2 >= 1 { v.phase2 -= 1 }
-            let x = saw * 0.32 + tri
+            let x = saw * v.sawMix + tri * v.triMix + saw2 * v.saw2Mix
 
             let v3 = x - v.ic2
             let v1 = a1 * v.ic1 + a2 * v3
@@ -197,10 +233,19 @@ private final class VoiceBus: @unchecked Sendable {
             v.ic2 = 2 * v2 - v.ic2
 
             let env: Double
-            if t < 0.005 {
-                env = 0.0001 * pow(vel / 0.0001, t / 0.005)
+            if v.sustain {
+                let release = min(0.4, v.duration * 0.3)
+                if t < attack {
+                    env = vel * t / attack
+                } else if t < v.duration - release {
+                    env = vel * (1 - 0.25 * (t - attack) / max(0.01, v.duration - release - attack))
+                } else {
+                    env = vel * 0.75 * max(0, (v.duration - t) / release)
+                }
+            } else if t < attack {
+                env = 0.0001 * pow(vel / 0.0001, t / attack)
             } else if t < v.duration {
-                env = vel * pow(0.0001 / vel, (t - 0.005) / (v.duration - 0.005))
+                env = vel * pow(0.0001 / vel, (t - attack) / (v.duration - attack))
             } else {
                 env = 0.0001
             }

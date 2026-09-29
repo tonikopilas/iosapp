@@ -8,7 +8,14 @@ struct MiniPlayer: View {
         let cur = store.current
         let nxt = store.nextChord
         let name = store.chordName(cur)
-        let beats = store.beatsPerChord
+        let beats = store.beatsPerBar
+        let chordBeats = store.beats(of: cur.chord)
+        let barCount = Int((Double(chordBeats) / Double(beats)).rounded(.up))
+        let sub: String = store.countdown > 0 ? "Count-in… \(store.countdown)"
+            : !store.playing ? "Tap play to hear it"
+            : barCount > 1 ? "Bar \(store.beat / beats + 1)/\(barCount) · Next: \(store.chordName(nxt))"
+            : "Next: \(store.chordName(nxt))"
+        let active = store.playing && store.countdown == 0
 
         HStack(spacing: 12) {
             // Album-art style chord tile
@@ -46,13 +53,13 @@ struct MiniPlayer: View {
                     HStack(spacing: 4) {
                         ForEach(0..<beats, id: \.self) { i in
                             Capsule()
-                                .fill(store.playing && i <= store.beat ? Color.white : .white.opacity(0.3))
-                                .frame(width: store.playing && i == store.beat ? 18 : 6, height: 6)
-                                .animation(.easeOut(duration: 0.2), value: store.beat)
+                                .fill(active && i <= store.barBeat ? Color.white : .white.opacity(0.3))
+                                .frame(width: active && i == store.barBeat ? 18 : 6, height: 6)
+                                .animation(.easeOut(duration: 0.2), value: store.barBeat)
                                 .animation(.easeOut(duration: 0.2), value: store.playing)
                         }
                     }
-                    Text(store.playing ? "Next: \(store.chordName(nxt))" : "Tap play to hear it")
+                    Text(sub)
                         .font(.onest(11, .semibold))
                         .foregroundStyle(.white.opacity(0.65))
                         .lineLimit(1)

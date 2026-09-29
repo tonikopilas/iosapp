@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Chip frames in global space, kept outside of view state so scrolling doesn't re-render the panel.
 private final class FrameBox {
@@ -6,29 +7,21 @@ private final class FrameBox {
     var viewport: CGRect = .zero
 }
 
-private struct DragState {
-    var sectionID: String
-    var chordID: String
-    /// Finger position relative to the chip's top-left at lift.
-    var grab: CGSize
-    var location: CGPoint
-    var lastReorder = Date.distantPast
-}
-
 struct SongPanel: View {
     @Environment(SongStore.self) private var store
     @State private var box = FrameBox()
-    @State private var drag: DragState?
-    @State private var layoutTick = 0
+    @State private var renaming: SongSection?
+    @State private var renameText = ""
 
     private let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 8), count: 4)
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(spacing: 12) {
+                LazyVStack(spacing: 12) {
                     ForEach(store.sections) { section in
                         sectionCard(section)
+                            .transition(.scale(scale: 0.95).combined(with: .opacity))
                     }
 
                     Button {
@@ -45,7 +38,7 @@ struct SongPanel: View {
                     }
                     .pressable(0.98)
 
-                    Text("Tap a chord to hear it. Hold and drag to reorder. Red dot = outside the key.")
+                    Text("Tap a chord to hear it, tap it again to edit. Hold and drag to move it. Red dot = outside the key.")
                         .font(.onest(12, .medium))
                         .lineSpacing(6)
                         .foregroundStyle(.white.opacity(0.55))
@@ -68,6 +61,14 @@ struct SongPanel: View {
                 }
             }
         }
+        .alert("Rename section", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let s = renaming { store.renameSection(s.id, renameText) }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
     }
 
     // MARK: Section card
@@ -84,8 +85,12 @@ struct SongPanel: View {
                     Text(s.name)
                         .font(.onest(20, .heavy))
                         .em(-0.025, 20)
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Eyebrow(text: "\(s.chords.count) BARS")
+                    Eyebrow(text: sectionMeta(s))
+                        .lineLimit(1)
+                        .fixedSize()
+                    sectionMenu(s)
                     Button { store.playSection(s) } label: {
                         PlayIcon(size: 13)
                             .foregroundStyle(.white)
@@ -100,7 +105,6 @@ struct SongPanel: View {
                     ForEach(s.chords) { c in
                         chip(c, in: s)
                             .id(c.id)
-                            .zIndex(store.dragID == c.id ? 20 : 1)
                             .transition(.scale(scale: 0.5).combined(with: .opacity))
                     }
                     Button {
@@ -123,6 +127,60 @@ struct SongPanel: View {
                 }
             }
         }
+        // Dropping on the card (not on a chord) moves the chord to the end of this section.
+        .onDrop(of: [.text], delegate: SectionDrop(sectionID: s.id, store: store))
+    }
+
+    private func sectionMeta(_ s: SongSection) -> String {
+        let bars = formatBars(s.bars)
+        return "\(bars) BAR\(s.bars == 1 ? "" : "S")" + (s.repeats > 1 ? " ×\(s.repeats)" : "")
+    }
+
+    private func sectionMenu(_ s: SongSection) -> some View {
+        let index = store.sections.firstIndex { $0.id == s.id } ?? 0
+        return Menu {
+            Button {
+                renameText = s.name
+                renaming = s
+            } label: { Label("Rename", systemImage: "pencil") }
+
+            Picker(selection: Binding(get: { s.repeats }, set: { n in withAnimation { store.setRepeats(s.id, n) } })) {
+                ForEach([1, 2, 3, 4, 8], id: \.self) { n in
+                    Text(n == 1 ? "Play once" : "Repeat ×\(n)").tag(n)
+                }
+            } label: {
+                Label("Repeat", systemImage: "repeat")
+            }
+            .pickerStyle(.menu)
+
+            Button {
+                withAnimation(.settle) { store.duplicateSection(s.id) }
+            } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+
+            if index > 0 {
+                Button {
+                    withAnimation(.settle) { store.moveSection(s.id, by: -1) }
+                } label: { Label("Move up", systemImage: "arrow.up") }
+            }
+            if index < store.sections.count - 1 {
+                Button {
+                    withAnimation(.settle) { store.moveSection(s.id, by: 1) }
+                } label: { Label("Move down", systemImage: "arrow.down") }
+            }
+
+            Divider()
+            Button(role: .destructive) {
+                withAnimation(.settle) { store.deleteSection(s.id) }
+            } label: { Label("Delete section", systemImage: "trash") }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.ink)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.paperDeep))
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Section options")
     }
 
     // MARK: Chip
@@ -132,48 +190,44 @@ struct SongPanel: View {
         let pal = store.palette
         let isSel = store.sel.chordID == c.id
         let isPlay = store.playing && isSel
-        let isDrag = store.dragID == c.id
         let name = store.chordName(c)
         let fg: Color = isPlay ? .white : .ink
-        let beats = store.beatsPerChord
-        let prog: CGFloat = isPlay ? min(1, CGFloat(store.beat + 1) / CGFloat(beats)) : 0
-        let scale: CGFloat = isDrag ? 1.08 : isPlay ? (store.lit ? 1.07 : 1.03) : 1
+        let total = store.beats(of: c)
+        let prog: CGFloat = isPlay ? min(1, CGFloat(store.beat + 1) / CGFloat(total)) : 0
+        let scale: CGFloat = isPlay ? (store.lit ? 1.07 : 1.03) : 1
+        let nameSize: CGFloat = name.count > 4 ? 15 : name.count > 3 ? 18 : 22
 
         ZStack(alignment: .topTrailing) {
-            ZStack(alignment: .bottomLeading) {
-                // Touch layer (tap to hear, hold to drag)
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(isPlay ? pal.col(c.root, 0.6, 0.2) : pal.tint(c.root))
-                    .contentShape(RoundedRectangle(cornerRadius: 18))
-                    .gesture(dragGesture(c, s).exclusively(before: TapGesture().onEnded {
-                        store.tap(sectionID: s.id, chordID: c.id)
-                    }))
-
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Text(store.numeral(c.root, c.q))
-                            .font(.mono(10, .bold))
-                            .foregroundStyle(isPlay ? .white.opacity(0.85) : pal.tintFg(c.root))
-                        Spacer(minLength: 0)
-                        if !store.inKey(c) {
-                            Circle().fill(Color.accent).frame(width: 6, height: 6)
-                                .accessibilityLabel("Outside the key")
-                        }
-                    }
-                    let nameSize: CGFloat = name.count > 4 ? 15 : name.count > 3 ? 18 : 22
-                    Text(name)
-                        .font(.onest(nameSize, .heavy))
-                        .em(-0.035, nameSize)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(store.numeral(c.root, c.q))
+                        .font(.mono(10, .bold))
+                        .foregroundStyle(isPlay ? .white.opacity(0.85) : pal.tintFg(c.root))
                     Spacer(minLength: 0)
+                    if !store.inKey(c) {
+                        Circle().fill(Color.accent).frame(width: 6, height: 6)
+                            .accessibilityLabel("Outside the key")
+                    }
                 }
-                .foregroundStyle(fg)
-                .padding(EdgeInsets(top: 9, leading: 9, bottom: 8, trailing: 9))
-                .allowsHitTesting(false)
-
-                // Beat progress
+                Text(name)
+                    .font(.onest(nameSize, .heavy))
+                    .em(-0.035, nameSize)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.top, 3)
+                Spacer(minLength: 0)
+                Text("\(formatBars(c.bars)) BAR\(c.bars <= 1 ? "" : "S")")
+                    .font(.mono(9, .bold))
+                    .em(0.06, 9)
+                    .foregroundStyle(isPlay ? .white.opacity(0.75) : pal.tintFg(c.root).opacity(0.75))
+            }
+            .foregroundStyle(fg)
+            .padding(EdgeInsets(top: 9, leading: 9, bottom: 8, trailing: 9))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 80)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(isPlay ? pal.col(c.root, 0.6, 0.2) : pal.tint(c.root)))
+            .overlay(alignment: .bottomLeading) {
                 GeometryReader { g in
                     Rectangle()
                         .fill(.white.opacity(0.9))
@@ -181,9 +235,7 @@ struct SongPanel: View {
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .animation(isPlay ? .linear(duration: 60 / Double(store.bpm)) : nil, value: prog)
                 }
-                .allowsHitTesting(false)
             }
-            .frame(height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .animation(.easeInOut(duration: 0.5), value: isPlay)
             .overlay(
@@ -195,14 +247,22 @@ struct SongPanel: View {
                             .strokeBorder(Color.accent, lineWidth: 2)
                             .padding(-4.5)
                     )
-                    .opacity(isSel && !isDrag ? 1 : 0)
+                    .opacity(isSel ? 1 : 0)
                     .animation(.easeOut(duration: 0.25), value: isSel)
                     .allowsHitTesting(false)
             )
+            .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18))
+            .onTapGesture { store.tap(sectionID: s.id, chordID: c.id) }
+            .onDrag {
+                store.dragID = c.id
+                return NSItemProvider(object: c.id as NSString)
+            }
+            .onDrop(of: [.text], delegate: ChipDrop(targetID: c.id, store: store))
 
-            if isSel && !store.playing && !isDrag {
+            if isSel && !store.playing {
                 Button {
-                    withAnimation(.settle) { store.delete(sectionID: s.id, chordID: c.id) }
+                    withAnimation(.settle) { store.delete(chordID: c.id) }
                 } label: {
                     Text("×")
                         .font(.onest(13, .bold))
@@ -219,66 +279,53 @@ struct SongPanel: View {
                 .accessibilityLabel("Remove")
             }
         }
-        .shadow(color: .black.opacity(isDrag ? 0.35 : 0), radius: 20, y: 18)
         .scaleEffect(scale)
         .animation(.bounce, value: scale)
-        .offset(dragOffset(for: c.id))
-        .transaction { t in if isDrag { t.animation = nil } }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            box.frames[c.id] = r
-            if drag != nil { layoutTick &+= 1 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { box.frames[c.id] = $0 }
+    }
+}
+
+// MARK: - Drag & drop
+
+/// Hovering a dragged chord over another one moves it into that slot, live.
+private struct ChipDrop: DropDelegate {
+    let targetID: String
+    let store: SongStore
+
+    func dropEntered(info: DropInfo) {
+        MainActor.assumeIsolated {
+            guard let d = store.dragID, d != targetID else { return }
+            UISelectionFeedbackGenerator().selectionChanged()
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { store.move(d, onto: targetID) }
         }
     }
 
-    // MARK: Drag to reorder
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
 
-    private func dragOffset(for id: String) -> CGSize {
-        _ = layoutTick
-        guard let d = drag, d.chordID == id, let r = box.frames[id] else { return .zero }
-        return CGSize(width: d.location.x - d.grab.width - r.minX, height: d.location.y - d.grab.height - r.minY)
+    func performDrop(info: DropInfo) -> Bool {
+        MainActor.assumeIsolated { store.dragID = nil }
+        return true
     }
+}
 
-    private func dragGesture(_ c: Chord, _ s: SongSection) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.22)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-            .onChanged { value in
-                guard case .second(true, let dv) = value else { return }
-                if store.dragID != c.id {
-                    // Lifted: grow the chip and lock paging before the finger moves.
-                    store.dragID = c.id
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                }
-                guard let dv else { return }
-                if drag == nil {
-                    guard let r = box.frames[c.id] else { return }
-                    let start = dv.startLocation
-                    drag = DragState(sectionID: s.id, chordID: c.id,
-                                     grab: CGSize(width: start.x - r.minX, height: start.y - r.minY),
-                                     location: start)
-                }
-                drag?.location = dv.location
-                reorderIfHovering(dv.location)
-            }
-            .onEnded { _ in
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.7)) {
-                    drag = nil
-                    store.dragID = nil
-                }
-            }
-    }
+/// Dragging a chord over another section's card moves it to the end of that section.
+private struct SectionDrop: DropDelegate {
+    let sectionID: String
+    let store: SongStore
 
-    private func reorderIfHovering(_ p: CGPoint) {
-        guard let d = drag, Date().timeIntervalSince(d.lastReorder) > 0.18,
-              let sec = store.sections.first(where: { $0.id == d.sectionID }) else { return }
-        for (i, other) in sec.chords.enumerated() where other.id != d.chordID {
-            if let r = box.frames[other.id], r.contains(p) {
-                drag?.lastReorder = Date()
-                UISelectionFeedbackGenerator().selectionChanged()
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
-                    store.reorder(sectionID: d.sectionID, chordID: d.chordID, to: i)
-                }
-                return
-            }
+    func dropEntered(info: DropInfo) {
+        MainActor.assumeIsolated {
+            guard let d = store.dragID,
+                  let s = store.sections.first(where: { $0.id == sectionID }),
+                  !s.chords.contains(where: { $0.id == d }) else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { store.move(d, toEndOf: sectionID) }
         }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        MainActor.assumeIsolated { store.dragID = nil }
+        return true
     }
 }

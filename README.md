@@ -14,16 +14,17 @@ The project uses a folder-synchronized group. Any file you add under `Chordflow/
 
 ## What's inside
 
-| Panel | What it does |
+| Screen | What it does |
 |---|---|
-| **Song** | Verse, Chorus and Bridge cards made of chord chips. Tap a chip to hear it. Hold and drag to reorder it within its section. A red dot marks chords outside the key. While playing, the current chip lights up and a bar fills across it on each beat. Use **Suggest** to add a chord to a section and **Add section** to add a new section. |
-| **Neck** | Fretboard that switches between *Chord shape* and *Full scale*. Finger dots spring to their new frets with a staggered animation and glow on each strum. You can change the chord quality, step to the previous or next chord, and tap any dot to hear that note. |
-| **Key** | Circle of fifths where the chords in your key are lit. Tap a wedge to move the whole song to that key, or transpose it up or down. Also shows the mode picker, the scale notes and the chords in the key (tap to hear, **+** to add). |
-| **Next** | Suggestions for the next chord: strong diatonic moves, plus borrowed or spicy options. Each one has a short reason and shows the notes it shares with the current chord. Tap to hear one and **Add** to drop it in. |
+| **Song** | Section cards made of chord chips. Tap a chip to hear it, tap it again to edit it. Hold and drag a chip to move it, even into another section. Each chip shows its length in bars, and a red dot marks chords outside the key. Each section's **•••** menu can rename, repeat (×2, ×3, ×4, ×8), duplicate, move or delete the section. |
+| **Neck** | Fretboard that switches between chord shape and full scale, with animated finger dots. You can change the chord type and step through the chords. |
+| **Key** | Circle of fifths, transpose, mode picker, scale notes and the chords in the key. |
+| **Next** | Suggestions for the next chord, with a reason for each and the notes it shares with the current chord. |
+| **Chord editor** | Change the root, the type and the length (½, 1, 2, 3 or 4 bars). You can also duplicate or delete the chord. |
+| **Song setup** (sliders icon) | Tempo (slider, ± buttons, tap tempo), time signature (2/4, 3/4, 4/4, 6/8), key and mode, sound (Guitar, Keys, Pad), playing style (Strum, Pulse, Arpeggio, Block), metronome click, count-in and note colours. |
+| **Your songs** (list icon) | Every saved song. Songs save automatically while you edit. Start a new song from a template (Blank, Pop, Ballad, 12-bar blues, Waltz), or open, duplicate or delete a saved one. |
 
-The mini-player at the bottom has play/pause, a song/section loop switch and beat pills. Tempo and the metronome **Click** sit in the header. Swipe between panels or tap the tabs.
-
-**Settings:** *Beats per chord* (2/4/8, default 8) and *Color notes* are in the iOS Settings app under Chordflow (`Settings.bundle`). These are the two settings from the prototype.
+The mini-player has play/pause, a song/section loop switch, beat pills for the current bar and a bar counter for long chords.
 
 ## Code map
 
@@ -34,18 +35,20 @@ Chordflow/
   Model/Palette.swift           circle-of-fifths hues, OKLCH → Display P3 colors, design tokens
   Model/SongStore.swift         @Observable state + all actions (playback clock, editing, transposing)
   Model/Suggestions.swift       "what comes next" logic
+  Model/SongLibrary.swift       JSON save/load (Application Support/Songs) and templates
   Audio/GuitarSynth.swift       AVAudioEngine synth: detuned saw+triangle, sweeping low-pass, echo, click bus
   Views/                        RootView (stage, header, tabs, pager, toast), Song/Neck/Key/Next panels, MiniPlayer
-  Resources/                    Onest + JetBrains Mono fonts (OFL), asset catalog, Settings.bundle
+  Resources/                    Onest + JetBrains Mono fonts (OFL), asset catalog
 Config/Info.plist               font registration (merged with generated Info.plist)
 ```
 
 ## Differences from the web prototype
 
-- **Reordering** uses the iOS pattern: hold a chip until it lifts (with a haptic), then drag it. A plain swipe still scrolls and pages normally. This avoids the prototype's conflict between dragging and scrolling on touch screens.
+- **Reordering** uses the system drag and drop: hold a chip until it lifts, then drag it anywhere, even into another section. Scrolling stays smooth.
 - **Status bar and home indicator** come from the system; the prototype's `ios-frame.jsx` bezel isn't needed.
 - **Blur and glass** use system materials (`.ultraThinMaterial`) with the design's tint on top.
-- **Song data is not saved** between launches. The prototype didn't save it either.
+- **Songs are saved** as JSON files, which the prototype didn't do.
+- **Lyrics were removed** from the chord chips.
 
 ---
 

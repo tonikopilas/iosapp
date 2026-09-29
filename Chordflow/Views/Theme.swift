@@ -109,8 +109,12 @@ struct PaperCard<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .foregroundStyle(Color.ink)
-            .background(Color.paper, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .shadow(color: .black.opacity(0.25), radius: 15, y: 10)
+            .background {
+                // Shadow on the shape only: shadowing the whole content would shadow every glyph and slow scrolling.
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(Color.paper)
+                    .shadow(color: .black.opacity(0.25), radius: 15, y: 10)
+            }
     }
 }
 
