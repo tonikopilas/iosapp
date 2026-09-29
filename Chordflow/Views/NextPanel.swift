@@ -34,12 +34,15 @@ struct NextPanel: View {
                 }
                 .padding(.horizontal, 4)
 
+                TipCard(text: store.role(sg.base.root, sg.base.q) + " Dots show notes shared with \(baseName): more shared notes = a smoother change.",
+                        topic: .functions)
+
                 sectionTitle("Strong moves", "FROM THE KEY")
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(sg.strong) { x in SuggestionCard(s: x, dark: false) }
                 }
 
-                sectionTitle("Add some color", "BORROWED & SPICY")
+                sectionTitle("Add some color", "BORROWED & SPICY", topic: .borrowed)
                     .padding(.top, 6)
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(sg.color) { x in SuggestionCard(s: x, dark: true) }
@@ -52,9 +55,10 @@ struct NextPanel: View {
         .scrollIndicators(.hidden)
     }
 
-    private func sectionTitle(_ title: String, _ eyebrow: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+    private func sectionTitle(_ title: String, _ eyebrow: String, topic: LearnTopic? = nil) -> some View {
+        HStack(alignment: .center) {
             Text(title).font(.onest(16, .heavy))
+            if let topic { InfoButton(topic: topic, onPaper: false).padding(-4) }
             Spacer()
             Eyebrow(text: eyebrow, size: 10, tracking: 0.1, color: .white.opacity(0.55))
         }

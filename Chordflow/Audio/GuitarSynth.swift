@@ -84,7 +84,13 @@ final class GuitarSynth {
     /// Strums a voicing (low to high, or high to low for an up-strum).
     func strum(_ chord: (root: Int, q: Quality), duration: Double = 1.9, delay: Double = 0.01,
                up: Bool = false, spacing: Double = 0.024, velocity: Double = 0.2) {
-        let ns = up ? notes(chord).reversed() : notes(chord)
+        let ns = notes(chord)
+        strum(notes: up ? Array(ns.reversed()) : ns, duration: duration, delay: delay, spacing: spacing, velocity: velocity)
+    }
+
+    /// Strums the given MIDI notes in order.
+    func strum(notes ns: [Int], duration: Double = 1.9, delay: Double = 0.01,
+               spacing: Double = 0.024, velocity: Double = 0.2) {
         for (k, midi) in ns.enumerated() {
             pluck(midi: midi, delay: delay + Double(k) * spacing, duration: duration, velocity: velocity)
         }
@@ -94,10 +100,15 @@ final class GuitarSynth {
         pluck(midi: midi, duration: 1.4, velocity: 0.24)
     }
 
-    func click(accent: Bool) {
-        guard ensureRunning() else { return }
-        clicks.schedule(Voice(kind: .click, freq: accent ? 1900 : 1300, delay: 0.005, duration: 0.05,
-                              velocity: accent ? 0.08 : 0.045))
+    /// Metronome loudness, 0…1.
+    var clickVolume = 0.7
+
+    /// Downbeats click high, group starts in odd/compound meters a little higher than plain beats.
+    func click(accent: Bool, medium: Bool = false, delay: Double = 0.005) {
+        guard ensureRunning(), clickVolume > 0.01 else { return }
+        let freq: Double = accent ? 1900 : medium ? 1600 : 1300
+        let vel: Double = (accent ? 0.08 : medium ? 0.06 : 0.045) * clickVolume / 0.7
+        clicks.schedule(Voice(kind: .click, freq: freq, delay: delay, duration: 0.05, velocity: min(0.14, vel)))
     }
 }
 

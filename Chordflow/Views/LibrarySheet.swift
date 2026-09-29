@@ -47,6 +47,26 @@ struct LibrarySheet: View {
                     .padding(.horizontal, 18)
                     .padding(.top, 6)
 
+                if store.library.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text("No saved songs yet").font(.onest(18, .heavy))
+                        Text("Songs save by themselves as soon as you change something. Start from a template above, or close this and start writing.")
+                            .font(.onest(13, .medium))
+                            .lineSpacing(4)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.65))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+                    .padding(.horizontal, 20)
+                    .glass(RoundedRectangle(cornerRadius: 24, style: .continuous), tint: .white.opacity(0.06))
+                    .padding(.horizontal, 14)
+                }
+
                 LazyVStack(spacing: 10) {
                     ForEach(store.library) { song in
                         songCard(song)
@@ -97,7 +117,7 @@ struct LibrarySheet: View {
                         Spacer(minLength: 0)
                         menu(song)
                     }
-                    Eyebrow(text: "\(keyName.uppercased()) · \(song.bpm) BPM · \(song.timeSignature.rawValue) · \(formatBars(bars)) BARS")
+                    Eyebrow(text: "\(keyName.uppercased()) · \(song.bpm) BPM · \(song.timeSignature.rawValue) · \(formatBars(bars)) BARS" + (song.tabs.isEmpty ? "" : " · \(song.tabs.count) TAB\(song.tabs.count == 1 ? "" : "S")"))
                         .lineLimit(1)
                     HStack(spacing: 4) {
                         ForEach(Array(chords.prefix(8).enumerated()), id: \.offset) { _, c in

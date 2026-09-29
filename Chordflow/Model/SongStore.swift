@@ -1,7 +1,8 @@
 import SwiftUI
 import Observation
 
-enum FretMode { case shape, scale }
+enum FretMode { case shape, scale, find }
+enum FretLabels { case notes, degrees }
 enum LoopMode { case song, section }
 
 struct Selection: Equatable {
@@ -15,9 +16,12 @@ struct InsertTarget: Equatable {
     var afterID: String?
 }
 
+enum ToastAction: Equatable { case view, undo }
+
 struct Toast: Equatable {
     var text: String
     var dot: Color
+    var action: ToastAction = .view
 }
 
 @MainActor
@@ -33,6 +37,10 @@ final class SongStore {
     var sound: Sound = .guitar
     var style: PlayStyle = .strum
     var sections: [SongSection] = []
+    var tabs: [Tab] = []
+    var strumSpeed: Double = 24
+    var ring: Double = 1
+    var swing: Double = 0
 
     // MARK: UI / playback state
     var sel = Selection(sectionID: "", chordID: nil)
@@ -46,6 +54,9 @@ final class SongStore {
     var countdown = 0
     var loop: LoopMode = .song
     var fretMode: FretMode = .shape
+    var fretLabels: FretLabels = .notes
+    /// Find mode: fret per string (-1 = muted), low E first.
+    var finderFrets = [-1, -1, -1, -1, -1, -1]
     var lit = false
     var dragID: String?
     var target: InsertTarget?
@@ -60,11 +71,29 @@ final class SongStore {
     var showSetup = false
     var showLibrary = false
     var library: [Song] = []
+    var showHandbook = false
+
+    // MARK: Tab editor
+    var tabID: String?
+    /// The selected event; new notes land after it.
+    var tabCursor: String?
+    var tabLength = NoteLength(value: .eighth)
+    /// When on, taps add notes to the selected event (chords, double stops) instead of starting a new one.
+    var tabStack = false
+    var tabPlaying = false
+    var tabPlayID: String?
+    var tabLoop = false
+    /// Pitch classes to highlight on the tab fretboard (from an analysis idea).
+    var tabHint: [Int] = []
+    @ObservationIgnored var tabTimer: Timer?
 
     // MARK: Preferences (app-wide)
     var click = true
     var countIn = false
+    var countInBars = 1
+    var clickVolume = 0.7
     var colorNotes = true
+    var showTips = true
 
     var palette: Palette { Palette(mono: !colorNotes) }
     var beatsPerBar: Int { timeSignature.beatsPerBar }
@@ -77,16 +106,26 @@ final class SongStore {
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
     @ObservationIgnored private var lastSaved: Song?
     @ObservationIgnored private var taps: [Date] = []
-    private let synth = GuitarSynth.shared
+    /// Sections before the last destructive edit, for Undo.
+    @ObservationIgnored private var undoSections: [SongSection]?
+    let synth = GuitarSynth.shared
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: [Prefs.click: true, Prefs.countIn: false, Prefs.colorNotes: true])
+        d.register(defaults: [Prefs.click: true, Prefs.countIn: false, Prefs.colorNotes: true,
+                              Prefs.countInBars: 1, Prefs.clickVolume: 0.7, Prefs.showTips: true])
         click = d.bool(forKey: Prefs.click)
         countIn = d.bool(forKey: Prefs.countIn)
         colorNotes = d.bool(forKey: Prefs.colorNotes)
+        countInBars = max(1, min(2, d.integer(forKey: Prefs.countInBars)))
+        clickVolume = d.double(forKey: Prefs.clickVolume)
+        showTips = d.bool(forKey: Prefs.showTips)
+        synth.clickVolume = clickVolume
 
+        // The demo song only appears on the very first launch; after that an empty library stays empty.
         let song = SongLibrary.lastOpenedID.flatMap(SongLibrary.load) ?? SongLibrary.all().first ?? {
+            if d.bool(forKey: Prefs.seeded) { return SongTemplate.all[0].make() }
+            d.set(true, forKey: Prefs.seeded)
             let demo = SongTemplate.demo()
             SongLibrary.save(demo)
             return demo
@@ -105,17 +144,29 @@ final class SongStore {
         static let click = "click"
         static let countIn = "countIn"
         static let colorNotes = "colorNotes"
+        static let countInBars = "countInBars"
+        static let clickVolume = "clickVolume"
+        static let showTips = "showTips"
+        static let seeded = "seededDemo"
     }
 
     func setClick(_ on: Bool) { click = on; UserDefaults.standard.set(on, forKey: Prefs.click) }
     func setCountIn(_ on: Bool) { countIn = on; UserDefaults.standard.set(on, forKey: Prefs.countIn) }
     func setColorNotes(_ on: Bool) { colorNotes = on; UserDefaults.standard.set(on, forKey: Prefs.colorNotes) }
+    func setShowTips(_ on: Bool) { showTips = on; UserDefaults.standard.set(on, forKey: Prefs.showTips) }
+    func setCountInBars(_ n: Int) { countInBars = n; UserDefaults.standard.set(n, forKey: Prefs.countInBars) }
+    func setClickVolume(_ v: Double) {
+        clickVolume = v
+        synth.clickVolume = v
+        UserDefaults.standard.set(v, forKey: Prefs.clickVolume)
+    }
 
     // MARK: Songs & saving
 
     private func snapshot(date: Date = Date()) -> Song {
         Song(id: songID, title: title, key: key, mode: mode, bpm: bpm, timeSignature: timeSignature,
-             sound: sound, style: style, sections: sections, updatedAt: date)
+             sound: sound, style: style, sections: sections, tabs: tabs,
+             strumSpeed: strumSpeed, ring: ring, swing: swing, updatedAt: date)
     }
 
     private func apply(_ s: Song) {
@@ -129,6 +180,14 @@ final class SongStore {
         synth.sound = s.sound
         style = s.style
         sections = s.sections
+        tabs = s.tabs
+        strumSpeed = s.strumSpeed
+        ring = s.ring
+        swing = s.swing
+        tabID = tabs.first?.id
+        tabCursor = tabs.first?.events.last?.id
+        tabHint = []
+        undoSections = nil
         let first = sections.first
         sel = Selection(sectionID: first?.id ?? "", chordID: first?.chords.first?.id)
         target = nil
@@ -154,6 +213,7 @@ final class SongStore {
     func open(_ song: Song) {
         saveIfNeeded()
         stop()
+        stopTab()
         apply(SongLibrary.load(song.id) ?? song)
         showLibrary = false
         goPanel(0)
@@ -164,6 +224,7 @@ final class SongStore {
         let s = template.make()
         SongLibrary.save(s)
         stop()
+        stopTab()
         apply(s)
         showLibrary = false
         goPanel(0)
@@ -183,13 +244,9 @@ final class SongStore {
         SongLibrary.delete(song.id)
         if song.id == songID {
             stop()
-            if let next = SongLibrary.all().first {
-                apply(next)
-            } else {
-                let blank = SongTemplate.all[0].make()
-                SongLibrary.save(blank)
-                apply(blank)
-            }
+            stopTab()
+            // With nothing left, a fresh blank song opens; it is only saved once you edit it.
+            apply(SongLibrary.all().first ?? SongTemplate.all[0].make())
         }
         refreshLibrary()
     }
@@ -240,9 +297,12 @@ final class SongStore {
         return ([5, 10, 3, 8, 1, 6].contains(r) ? Theory.flat : Theory.sharp)[m12(pc)]
     }
 
-    func chordName(_ root: Int, _ q: Quality) -> String { name(root) + q.suffix }
-    func chordName(_ c: Chord) -> String { chordName(c.root, c.q) }
-    func chordName(_ c: PlacedChord) -> String { chordName(c.root, c.q) }
+    func chordName(_ root: Int, _ q: Quality, bass: Int? = nil) -> String {
+        name(root) + q.suffix + (bass.map { m12($0) == m12(root) ? "" : "/" + name($0) } ?? "")
+    }
+    func chordName(_ c: Chord) -> String { chordName(c.root, c.q, bass: c.bass) }
+    func chordName(_ c: PlacedChord) -> String { chordName(c.chord) }
+    func chordName(_ m: ChordMatch) -> String { chordName(m.root, m.q, bass: m.bass) }
 
     func numeral(_ root: Int, _ q: Quality) -> String { Theory.numeral(m12(root - key), q, mode) }
 
@@ -253,6 +313,16 @@ final class SongStore {
 
     /// How many beats a chord lasts in the current time signature.
     func beats(of c: Chord) -> Int { max(1, Int((c.bars * Double(beatsPerBar)).rounded())) }
+
+    /// "2 BARS", or "5 BEATS" when the length isn't a tidy fraction of a bar.
+    func lengthLabel(_ c: Chord) -> String {
+        let b = beats(of: c)
+        let asBars = Double(b) / Double(beatsPerBar)
+        if (2 * b) % beatsPerBar == 0 {
+            return "\(formatBars(asBars)) BAR\(asBars <= 1 ? "" : "S")"
+        }
+        return "\(b) BEAT\(b == 1 ? "" : "S")"
+    }
 
     var insertTarget: InsertTarget {
         target ?? InsertTarget(sectionID: sel.sectionID.isEmpty ? (sections.first?.id ?? "") : sel.sectionID,
@@ -272,7 +342,24 @@ final class SongStore {
     }
 
     func hear(_ root: Int, _ q: Quality) {
-        synth.strum((m12(root), q), spacing: style == .block ? 0.004 : 0.024)
+        synth.strum(notes: synth.notes((m12(root), q)), spacing: style == .block ? 0.004 : strumSpeed / 1000)
+        flash()
+    }
+
+    /// Plays a chord the way it's written: its own shape and bass.
+    func hear(_ c: Chord) {
+        synth.strum(notes: midiNotes(c), spacing: (c.style ?? style) == .block ? 0.004 : strumSpeed / 1000)
+        flash()
+    }
+
+    /// MIDI notes of a chord's shape, low to high.
+    func midiNotes(_ c: Chord) -> [Int] {
+        c.shape.enumerated().compactMap { i, f in f >= 0 ? Theory.tuning[i] + f : nil }
+    }
+
+    func hear(frets: [Int]) {
+        let ns = frets.enumerated().compactMap { i, f in f >= 0 ? Theory.tuning[i] + f : nil }
+        synth.strum(notes: ns, spacing: strumSpeed / 1000)
         flash()
     }
 
@@ -284,10 +371,11 @@ final class SongStore {
 
     func play() {
         guard synth.ensureRunning(), !sequence.isEmpty else { return }
+        stopTab()
         let i = sequence.firstIndex { $0.id == sel.chordID }
         jump = i ?? 0
         timer?.invalidate()
-        countdown = countIn ? beatsPerBar : 0
+        countdown = countIn ? beatsPerBar * countInBars : 0
         playing = true
         tick()
     }
@@ -304,7 +392,7 @@ final class SongStore {
     private func tick() {
         let spb = 60 / Double(bpm)
         if countdown > 0 {
-            synth.click(accent: countdown == beatsPerBar)
+            synth.click(accent: countdown % beatsPerBar == 0)
             countdown -= 1
             schedule(spb)
             return
@@ -323,7 +411,7 @@ final class SongStore {
         if p >= seq.count || p < 0 { p = 0 }
         let c = seq[p]
         perform(c.chord, beat: b, spb: spb)
-        if click { synth.click(accent: barBeat == 0) }
+        if click { synth.click(accent: barBeat == 0, medium: timeSignature.isSecondaryAccent(barBeat)) }
         pos = p
         beat = b
         sel = Selection(sectionID: c.sectionID, chordID: c.id)
@@ -341,26 +429,28 @@ final class SongStore {
         timer = t
     }
 
-    /// Plays one beat of a chord in the song's style.
+    /// Plays one beat of a chord in its style.
     private func perform(_ c: Chord, beat b: Int, spb: Double) {
         let total = beats(of: c)
-        let ch = (c.root, c.q)
-        switch style {
+        let ns = midiNotes(c)
+        guard !ns.isEmpty else { return }
+        let spacing = strumSpeed / 1000
+        // Swing pushes the off-beat eighth late: 0 = straight, 1 = triplet feel.
+        let offbeat = spb * (0.5 + swing / 6)
+        switch c.style ?? style {
         case .strum:
-            if b == 0 { synth.strum(ch, duration: Double(total) * spb + 0.4) }
+            if b == 0 { synth.strum(notes: ns, duration: (Double(total) * spb + 0.4) * ring, spacing: spacing) }
         case .block:
-            if b == 0 { synth.strum(ch, duration: Double(total) * spb + 0.3, spacing: 0.003, velocity: 0.16) }
+            if b == 0 { synth.strum(notes: ns, duration: (Double(total) * spb + 0.3) * ring, spacing: 0.003, velocity: 0.16) }
         case .pulse:
             let up = b % 2 == 1
-            synth.strum(ch, duration: spb * 0.95, up: up, spacing: 0.012,
+            synth.strum(notes: up ? Array(ns.reversed()) : ns, duration: spb * 0.95 * ring, spacing: spacing / 2,
                         velocity: b == 0 ? 0.22 : (up ? 0.12 : 0.17))
         case .arpeggio:
-            let ns = synth.notes(ch)
-            guard !ns.isEmpty else { break }
             let pattern = ns + ns.dropFirst().dropLast().reversed()
             for k in 0..<2 {
                 let n = pattern[(b * 2 + k) % pattern.count]
-                synth.pluck(midi: n, delay: 0.01 + Double(k) * spb / 2, duration: spb * 3, velocity: 0.2)
+                synth.pluck(midi: n, delay: 0.01 + (k == 0 ? 0 : offbeat), duration: spb * 3 * ring, velocity: 0.2)
             }
         }
         if b == 0 { flash() }
@@ -385,7 +475,7 @@ final class SongStore {
         } else {
             sel = Selection(sectionID: sectionID, chordID: chordID)
             target = nil
-            if let c = chord(chordID) { hear(c.root, c.q) }
+            if let c = chord(chordID) { hear(c.chord) }
         }
     }
 
@@ -398,24 +488,64 @@ final class SongStore {
     }
 
     func setQuality(_ q: Quality) {
-        let cur = current
         guard hasCurrent else { return }
-        updateChord(cur.id) { $0.q = q }
-        hear(cur.root, q)
+        setQuality(current.id, q)
     }
 
     func setQuality(_ id: String, _ q: Quality) {
-        updateChord(id) { $0.q = q }
-        if let c = chord(id) { hear(c.root, c.q) }
+        updateChord(id) { $0.q = q; $0.voicing = nil }
+        if let c = chord(id) { hear(c.chord) }
     }
 
     func setRoot(_ id: String, _ root: Int) {
-        updateChord(id) { $0.root = m12(root) }
-        if let c = chord(id) { hear(c.root, c.q) }
+        updateChord(id) { c in
+            // An inversion follows the root; a free slash bass stays put.
+            if let b = c.bass, c.pitchClasses.contains(m12(b)) { c.bass = m12(b + root - c.root) }
+            c.root = m12(root)
+            c.voicing = nil
+        }
+        if let c = chord(id) { hear(c.chord) }
+    }
+
+    func setBass(_ id: String, _ bass: Int?) {
+        updateChord(id) { $0.bass = bass.map(m12); $0.voicing = nil }
+        if let c = chord(id) { hear(c.chord) }
+    }
+
+    func setVoicing(_ id: String, _ v: [Int]?) {
+        updateChord(id) { $0.voicing = v }
+        if let c = chord(id) { hear(c.chord) }
+    }
+
+    func setChordStyle(_ id: String, _ s: PlayStyle?) {
+        updateChord(id) { $0.style = s }
     }
 
     func setBars(_ id: String, _ bars: Double) {
-        updateChord(id) { $0.bars = bars }
+        updateChord(id) { $0.bars = max(0.25, min(16, bars)) }
+    }
+
+    /// Sets the length in beats (for odd lengths like 3 beats in 4/4).
+    func setBeats(_ id: String, _ beats: Int) {
+        let b = max(1, min(16 * beatsPerBar, beats))
+        updateChord(id) { $0.bars = Double(b) / Double(beatsPerBar) }
+    }
+
+    /// Quick − / + on a chip: ½ → 1 → 2 → 3 … bars, snapping odd lengths to whole bars.
+    func stepBars(_ id: String, up: Bool) {
+        guard let c = chord(id)?.chord else { return }
+        let b = c.bars
+        let next: Double = up ? (b < 1 ? 1 : (b + 0.001).rounded(.down) + 1)
+                              : (b > 1 ? (b - 0.001).rounded(.up) - 1 : 0.5)
+        guard next != b else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+        setBars(id, next)
+    }
+
+    /// Gives every chord in a section the same length.
+    func setAllBars(_ sectionID: String, _ bars: Double) {
+        guard let i = sections.firstIndex(where: { $0.id == sectionID }) else { return }
+        for c in sections[i].chords.indices { sections[i].chords[c].bars = bars }
     }
 
     func duplicateChord(_ id: String) {
@@ -456,37 +586,56 @@ final class SongStore {
         guard let i = all.firstIndex(where: { $0.id == chordID }) else { return }
         let neighbour = i + 1 < all.count ? all[i + 1] : (i > 0 ? all[i - 1] : nil)
         let sid = all[i].sectionID
+        undoSections = sections
+        let removed = all[i].chord
         for s in sections.indices { sections[s].chords.removeAll { $0.id == chordID } }
+        showToast(Toast(text: "Removed \(chordName(removed))", dot: palette.col(removed.root), action: .undo))
         sel = neighbour.map { Selection(sectionID: $0.sectionID, chordID: $0.id) }
             ?? Selection(sectionID: sid, chordID: nil)
         if editingChordID == chordID { editingChordID = nil }
     }
 
-    func addChord(_ root: Int, _ q: Quality) {
-        if sections.isEmpty { addSection() }
+    func addChord(_ root: Int, _ q: Quality, bass: Int? = nil, voicing: [Int]? = nil) {
+        if sections.isEmpty { addSection(withChord: false) }
         let tg = insertTarget
         let si = sections.firstIndex { $0.id == tg.sectionID } ?? 0
-        let nc = Chord(id: newID("c"), root: m12(root), q: q)
+        var nc = Chord(id: newID("c"), root: m12(root), q: q)
+        nc.bass = bass.flatMap { m12($0) == m12(root) ? nil : m12($0) }
+        nc.voicing = voicing
         let sec = sections[si]
         let i = sec.chords.firstIndex { $0.id == tg.afterID }
         sections[si].chords.insert(nc, at: i.map { $0 + 1 } ?? sec.chords.count)
         sel = Selection(sectionID: sec.id, chordID: nc.id)
         target = InsertTarget(sectionID: sec.id, afterID: nc.id)
         showToast(Toast(text: "Added \(chordName(nc)) to \(sec.name)", dot: palette.col(nc.root)))
-        hear(nc.root, nc.q)
+        hear(nc)
     }
 
     // MARK: Section editing
 
-    func addSection() {
+    /// Adds a section, named automatically unless `name` is given. It starts on the home chord.
+    func addSection(named: String? = nil, withChord: Bool = true) {
         let id = newID("s"), cid = newID("c")
         let n = Theory.sectionNames.count
         let used = Set(sections.map(\.name))
-        let name = Theory.sectionNames.first { !used.contains($0) }
+        let name = named ?? Theory.sectionNames.first { !used.contains($0) }
             ?? Theory.sectionNames[((sections.count - 3) % n + n) % n]
-        sections.append(SongSection(id: id, name: name, chords: [Chord(id: cid, root: key, q: diatonic[0].q)]))
-        sel = Selection(sectionID: id, chordID: cid)
-        target = InsertTarget(sectionID: id, afterID: cid)
+        let chords = withChord ? [Chord(id: cid, root: key, q: diatonic[0].q)] : []
+        sections.append(SongSection(id: id, name: name, chords: chords))
+        sel = Selection(sectionID: id, chordID: withChord ? cid : nil)
+        target = InsertTarget(sectionID: id, afterID: withChord ? cid : nil)
+    }
+
+    /// Brings back the sections as they were before the last delete.
+    func undo() {
+        guard let saved = undoSections else { return }
+        sections = saved
+        undoSections = nil
+        toast = nil
+        if chord(sel.chordID) == nil {
+            let first = sections.first
+            sel = Selection(sectionID: first?.id ?? "", chordID: first?.chords.first?.id)
+        }
     }
 
     func renameSection(_ id: String, _ name: String) {
@@ -516,7 +665,10 @@ final class SongStore {
     }
 
     func deleteSection(_ id: String) {
+        guard let s = sections.first(where: { $0.id == id }) else { return }
+        undoSections = sections
         sections.removeAll { $0.id == id }
+        showToast(Toast(text: "Deleted \(s.name)", dot: Color.accent, action: .undo))
         if sel.sectionID == id {
             let first = sections.first
             sel = Selection(sectionID: first?.id ?? "", chordID: first?.chords.first?.id)
@@ -538,14 +690,20 @@ final class SongStore {
         if playing { jump = sequence.firstIndex { $0.id == first.id } } else { play() }
     }
 
-    func preview(_ root: Int, _ q: Quality) {
-        hear(root, q)
+    func preview(_ root: Int, _ q: Quality, bass: Int? = nil) {
+        if let bass {
+            var c = Chord(id: "", root: root, q: q)
+            c.bass = bass
+            hear(c)
+        } else {
+            hear(root, q)
+        }
         previewKey = "\(m12(root))\(q.rawValue)"
         previewTask?.cancel()
         previewTask = after(0.22) { $0.previewKey = nil }
     }
 
-    private func showToast(_ t: Toast) {
+    func showToast(_ t: Toast) {
         toast = t
         toastTask?.cancel()
         toastTask = after(2.4) { $0.toast = nil }
@@ -560,7 +718,8 @@ final class SongStore {
         }
     }
 
-    func dismissToastAndView() {
+    func toastAction() {
+        if toast?.action == .undo { undo(); return }
         toast = nil
         goPanel(0)
     }
@@ -571,6 +730,8 @@ final class SongStore {
         for s in sections.indices {
             for c in sections[s].chords.indices {
                 sections[s].chords[c].root = m12(sections[s].chords[c].root + n)
+                sections[s].chords[c].bass = sections[s].chords[c].bass.map { m12($0 + n) }
+                sections[s].chords[c].voicing = nil
             }
         }
     }
@@ -599,6 +760,12 @@ final class SongStore {
         hear(pc, minor ? .min : .maj)
     }
 
+    /// Sets the key without moving any chords (e.g. to match what a tab was written in).
+    func setKeyOnly(_ pc: Int, _ m: Mode) {
+        key = m12(pc)
+        mode = m
+    }
+
     func setMode(_ m: Mode) {
         mode = m
         hear(key, Theory.diatonic(m)[0].q)
@@ -614,7 +781,7 @@ final class SongStore {
         if playing {
             if let j = sequence.firstIndex(where: { $0.id == c.id }) { jump = j }
         } else {
-            hear(c.root, c.q)
+            hear(c.chord)
         }
     }
 
@@ -643,8 +810,12 @@ final class SongStore {
     func setSound(_ s: Sound) {
         sound = s
         synth.sound = s
-        hear(current.root, current.q)
+        hear(current.chord)
     }
+
+    func setStrumSpeed(_ v: Double) { strumSpeed = max(2, min(80, v)) }
+    func setRing(_ v: Double) { ring = max(0.25, min(2, v)) }
+    func setSwing(_ v: Double) { swing = max(0, min(1, v)) }
 
     func setStyle(_ s: PlayStyle) { style = s }
 

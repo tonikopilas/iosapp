@@ -15,9 +15,13 @@ struct SongSetupSheet: View {
                 tempo
 
                 SettingCard(title: "Time signature", meta: "\(store.beatsPerBar) BEATS PER BAR") {
-                    PaperSegmented(options: TimeSignature.allCases, selection: store.timeSignature,
+                    PaperSegmented(options: Array(TimeSignature.allCases.prefix(4)), selection: store.timeSignature,
                                    label: { $0.rawValue },
                                    onSelect: { store.setTimeSignature($0) })
+                    PaperSegmented(options: Array(TimeSignature.allCases.dropFirst(4)), selection: store.timeSignature,
+                                   label: { $0.rawValue },
+                                   onSelect: { store.setTimeSignature($0) })
+                    explain(store.timeSignature.detail, .meter)
                 }
 
                 SettingCard(title: "Key", meta: store.keyName.uppercased()) {
@@ -25,9 +29,7 @@ struct SongSetupSheet: View {
                     PaperSegmented(options: Mode.allCases, selection: store.mode,
                                    label: { $0.name },
                                    onSelect: { store.setMode($0) })
-                    Text("Changing the key root moves every chord with it.")
-                        .font(.onest(12, .medium))
-                        .foregroundStyle(Color.muted)
+                    explain(store.modeBlurb + " Changing the key root moves every chord with it.", .modes)
                 }
 
                 SettingCard(title: "Sound") {
@@ -77,17 +79,35 @@ struct SongSetupSheet: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    Text("Press play to hear the style across the song.")
-                        .font(.onest(12, .medium))
-                        .foregroundStyle(Color.muted)
+                    explain("Press play to hear the style across the song. Any chord can use its own style from its editor.", .styles)
+                }
+
+                SettingCard(title: "Feel") {
+                    slider("Strum speed", value: store.strumSpeed, in: 2...80,
+                           left: "Snappy", right: "Lazy", readout: "\(Int(store.strumSpeed)) ms") { store.setStrumSpeed($0) }
+                    slider("Let ring", value: store.ring, in: 0.25...2,
+                           left: "Staccato", right: "Sustained", readout: "\(Int((store.ring * 100).rounded()))%") { store.setRing($0) }
+                    slider("Swing", value: store.swing, in: 0...1,
+                           left: "Straight", right: "Shuffle", readout: store.swing < 0.05 ? "Off" : "\(Int((store.swing * 100).rounded()))%") { store.setSwing($0) }
+                    explain("Strum speed is the gap between strings. Let ring sets how long notes sustain. Swing delays every off-beat eighth, the shuffle feel of blues and jazz (heard in Arpeggio style).", nil)
                 }
 
                 SettingCard(title: "Metronome & look") {
                     VStack(spacing: 4) {
                         toggle("Click", "Metronome on every beat", store.click, store.setClick)
-                        toggle("Count-in", "One bar of clicks before playing", store.countIn, store.setCountIn)
+                        slider("Click volume", value: store.clickVolume, in: 0...1, left: "Soft", right: "Loud",
+                               readout: "\(Int((store.clickVolume * 100).rounded()))%") { store.setClickVolume($0) }
+                            .padding(.vertical, 4)
+                        toggle("Count-in", "Clicks before playing starts", store.countIn, store.setCountIn)
+                        if store.countIn {
+                            PaperSegmented(options: [1, 2], selection: store.countInBars,
+                                           label: { "\($0) bar\($0 == 1 ? "" : "s")" },
+                                           onSelect: { store.setCountInBars($0) })
+                        }
                         toggle("Color notes", "Each note gets its own color", store.colorNotes, store.setColorNotes)
+                        toggle("Theory tips", "Explanations around the app", store.showTips, store.setShowTips)
                     }
+                    .animation(.settle, value: store.countIn)
                 }
             }
             .padding(.horizontal, 14)
@@ -105,7 +125,11 @@ struct SongSetupSheet: View {
                     .monospacedDigit()
                     .contentTransition(.numericText(value: Double(store.bpm)))
                     .animation(.settle, value: store.bpm)
-                Text("BPM").font(.mono(12, .bold)).foregroundStyle(Color.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("BPM").font(.mono(12, .bold)).foregroundStyle(Color.muted)
+                    Text(store.tempoName).font(.onest(11.5, .semibold)).foregroundStyle(Color.mutedDeep)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
                 Spacer()
                 roundButton("−") { store.setBPM(store.bpm - 1) }
                 roundButton("+") { store.setBPM(store.bpm + 1) }
@@ -123,6 +147,39 @@ struct SongSetupSheet: View {
             }
             .pressable(0.97)
         }
+    }
+
+    private func explain(_ text: String, _ topic: LearnTopic?) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(text)
+                .font(.onest(12, .medium))
+                .lineSpacing(3)
+                .foregroundStyle(Color.mutedDeep)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let topic { InfoButton(topic: topic).padding(-6) }
+        }
+    }
+
+    private func slider(_ title: String, value: Double, in range: ClosedRange<Double>, left: String, right: String,
+                        readout: String, set: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.onest(15, .heavy))
+                Spacer()
+                Text(readout).font(.mono(12, .bold)).foregroundStyle(Color.mutedDeep).monospacedDigit()
+            }
+            Slider(value: Binding(get: { value }, set: set), in: range)
+                .tint(.accent)
+            HStack {
+                Text(left)
+                Spacer()
+                Text(right)
+            }
+            .font(.onest(11, .semibold))
+            .foregroundStyle(Color.muted)
+        }
+        .foregroundStyle(Color.ink)
     }
 
     private func roundButton(_ label: String, action: @escaping () -> Void) -> some View {

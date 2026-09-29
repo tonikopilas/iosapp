@@ -36,6 +36,7 @@ struct KeyPanel: View {
                 circle
                     .padding(.vertical, 4)
                 scaleCard
+                TipCard(text: store.modeBlurb + " Roman numerals show each chord's step in the key.", topic: .numerals)
             }
             .padding(.horizontal, 14)
             .padding(.top, 2)
@@ -47,7 +48,10 @@ struct KeyPanel: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Circle of fifths").font(.onest(22, .heavy)).em(-0.03, 22)
+                HStack(spacing: 2) {
+                    Text("Circle of fifths").font(.onest(22, .heavy)).em(-0.03, 22)
+                    InfoButton(topic: .circle, onPaper: false)
+                }
                 Text("Lit wedges are in your key. Tap one to move the song there.")
                     .font(.onest(12.5, .medium))
                     .lineSpacing(5)
@@ -168,6 +172,7 @@ struct KeyPanel: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("Scale").font(.onest(20, .heavy)).em(-0.025, 20)
+                    InfoButton(topic: .modes)
                     Spacer()
                     Eyebrow(text: store.keyName.uppercased())
                 }

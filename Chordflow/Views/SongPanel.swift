@@ -19,31 +19,19 @@ struct SongPanel: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 12) {
+                    if store.sections.isEmpty {
+                        emptySong
+                            .transition(.scale(scale: 0.95).combined(with: .opacity))
+                    }
                     ForEach(store.sections) { section in
                         sectionCard(section)
                             .transition(.scale(scale: 0.95).combined(with: .opacity))
                     }
 
-                    Button {
-                        withAnimation(.settle) { store.addSection() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            PlusIcon(size: 16, weight: 2.75)
-                            Text("Add section").font(.onest(14, .bold))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .glass(Capsule(), tint: .white.opacity(0.1))
-                    }
-                    .pressable(0.98)
+                    addSectionButton
 
-                    Text("Tap a chord to hear it, tap it again to edit. Hold and drag to move it. Red dot = outside the key.")
-                        .font(.onest(12, .medium))
-                        .lineSpacing(6)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 6)
+                    TipCard(text: "Tap a chord to hear it, tap it again to edit. Use − and + on the selected chord to change its length. Hold and drag to move it. A red dot means the chord uses notes outside the key.",
+                            topic: .bars)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 2)
@@ -69,6 +57,73 @@ struct SongPanel: View {
             }
             Button("Cancel", role: .cancel) { renaming = nil }
         }
+    }
+
+    // MARK: Empty & add
+
+    private var emptySong: some View {
+        PaperCard(padding: EdgeInsets(top: 22, leading: 18, bottom: 18, trailing: 18)) {
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: "music.quarternote.3")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(Color.accent)
+                    .frame(width: 52, height: 52)
+                    .background(Circle().fill(Color.paperDeep))
+                Text("No sections yet").font(.onest(22, .heavy)).em(-0.03, 22)
+                Text("Songs are built from sections like Verse and Chorus, each a row of chords. Add one to start, or pick a template with a ready-made progression.")
+                    .font(.onest(13.5, .medium))
+                    .lineSpacing(4)
+                    .foregroundStyle(Color.mutedDeep)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button { withAnimation(.settle) { store.addSection(named: "Verse") } } label: {
+                        Text("Add a verse")
+                            .font(.onest(14, .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Capsule().fill(Color.accent))
+                    }
+                    .pressable()
+                    Button {
+                        store.refreshLibrary()
+                        store.showLibrary = true
+                    } label: {
+                        Text("Templates")
+                            .font(.onest(14, .heavy))
+                            .foregroundStyle(Color.ink)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Capsule().fill(Color.paperDeep))
+                    }
+                    .pressable()
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    private var addSectionButton: some View {
+        Menu {
+            Section("Add a section named") {
+                ForEach(["Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Solo", "Breakdown", "Outro"], id: \.self) { n in
+                    Button(n) { withAnimation(.settle) { store.addSection(named: n) } }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                PlusIcon(size: 16, weight: 2.75)
+                Text("Add section").font(.onest(14, .bold))
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).opacity(0.6)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .glass(Capsule(), tint: .white.opacity(0.1))
+        } primaryAction: {
+            withAnimation(.settle) { store.addSection() }
+        }
+        .accessibilityHint("Hold to choose a name")
     }
 
     // MARK: Section card
@@ -101,6 +156,14 @@ struct SongPanel: View {
                     .accessibilityLabel("Play from here")
                 }
 
+                if s.chords.isEmpty {
+                    Text("Empty section. Tap Suggest for ideas, add chords from the Key or Next tab, or drag a chord in here.")
+                        .font(.onest(12.5, .medium))
+                        .lineSpacing(3)
+                        .foregroundStyle(Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 LazyVGrid(columns: columns, spacing: 8) {
                     ForEach(s.chords) { c in
                         chip(c, in: s)
@@ -125,10 +188,61 @@ struct SongPanel: View {
                     }
                     .pressable()
                 }
+
+                sectionFooter(s)
             }
         }
         // Dropping on the card (not on a chord) moves the chord to the end of this section.
         .onDrop(of: [.text], delegate: SectionDrop(sectionID: s.id, store: store))
+    }
+
+    /// Repeat count and a clearly visible delete, so neither hides in the ••• menu.
+    private func sectionFooter(_ s: SongSection) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                footerStep("minus", enabled: s.repeats > 1) { store.setRepeats(s.id, s.repeats - 1) }
+                    .accessibilityLabel("Fewer repeats")
+                Text(s.repeats == 1 ? "Plays once" : "Plays ×\(s.repeats)")
+                    .font(.onest(12.5, .bold))
+                    .monospacedDigit()
+                    .frame(minWidth: 74)
+                    .contentTransition(.numericText())
+                footerStep("plus", enabled: s.repeats < 8) { store.setRepeats(s.id, s.repeats + 1) }
+                    .accessibilityLabel("More repeats")
+            }
+            .frame(height: 34)
+            .background(Capsule().fill(Color.paperDeep))
+            .animation(.settle, value: s.repeats)
+
+            Spacer(minLength: 0)
+
+            Button(role: .destructive) {
+                withAnimation(.settle) { store.deleteSection(s.id) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "trash").font(.system(size: 12, weight: .bold))
+                    Text("Delete").font(.onest(12.5, .bold))
+                }
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(Capsule().fill(Color.accent.opacity(0.1)))
+            }
+            .pressable()
+            .accessibilityLabel("Delete \(s.name)")
+        }
+    }
+
+    private func footerStep(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(enabled ? Color.ink : Color.outline)
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private func sectionMeta(_ s: SongSection) -> String {
@@ -152,6 +266,14 @@ struct SongPanel: View {
                 Label("Repeat", systemImage: "repeat")
             }
             .pickerStyle(.menu)
+
+            Menu {
+                ForEach([0.5, 1, 2, 4], id: \.self) { b in
+                    Button("\(formatBars(b)) bar\(b <= 1 ? "" : "s") each") {
+                        withAnimation(.settle) { store.setAllBars(s.id, b) }
+                    }
+                }
+            } label: { Label("Set all chord lengths", systemImage: "ruler") }
 
             Button {
                 withAnimation(.settle) { store.duplicateSection(s.id) }
@@ -185,6 +307,41 @@ struct SongPanel: View {
 
     // MARK: Chip
 
+    /// − length + right on the selected chord.
+    private func lengthStepper(_ c: Chord) -> some View {
+        let pal = store.palette
+        return HStack(spacing: 0) {
+            chipStep("minus", enabled: c.bars > 0.5) { withAnimation(.settle) { store.stepBars(c.id, up: false) } }
+                .accessibilityLabel("Shorter")
+            Text(store.lengthLabel(c).replacingOccurrences(of: " BARS", with: "").replacingOccurrences(of: " BAR", with: "")
+                .replacingOccurrences(of: " BEATS", with: "b").replacingOccurrences(of: " BEAT", with: "b"))
+                .font(.mono(11, .bold))
+                .foregroundStyle(pal.tintFg(c.root))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity)
+            chipStep("plus", enabled: c.bars < 16) { withAnimation(.settle) { store.stepBars(c.id, up: true) } }
+                .accessibilityLabel("Longer")
+        }
+        .frame(height: 22)
+        .background(Capsule().fill(.white.opacity(0.7)))
+        .padding(.horizontal, -4)
+        .transition(.opacity)
+    }
+
+    private func chipStep(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(enabled ? Color.ink : Color.outline)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .buttonRepeatBehavior(.enabled)
+        .disabled(!enabled)
+    }
+
     @ViewBuilder
     private func chip(_ c: Chord, in s: SongSection) -> some View {
         let pal = store.palette
@@ -216,10 +373,16 @@ struct SongPanel: View {
                     .minimumScaleFactor(0.7)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
-                Text("\(formatBars(c.bars)) BAR\(c.bars <= 1 ? "" : "S")")
-                    .font(.mono(9, .bold))
-                    .em(0.06, 9)
-                    .foregroundStyle(isPlay ? .white.opacity(0.75) : pal.tintFg(c.root).opacity(0.75))
+                if isSel && !store.playing {
+                    lengthStepper(c)
+                } else {
+                    Text(store.lengthLabel(c))
+                        .font(.mono(9, .bold))
+                        .em(0.06, 9)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .foregroundStyle(isPlay ? .white.opacity(0.75) : pal.tintFg(c.root).opacity(0.75))
+                }
             }
             .foregroundStyle(fg)
             .padding(EdgeInsets(top: 9, leading: 9, bottom: 8, trailing: 9))

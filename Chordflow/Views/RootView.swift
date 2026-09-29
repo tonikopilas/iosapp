@@ -6,7 +6,7 @@ struct RootView: View {
     @State private var pageFraction: CGFloat = 0
     @FocusState private var titleFocused: Bool
 
-    private let tabs = ["Song", "Neck", "Key", "Next"]
+    private let tabs = ["Song", "Neck", "Key", "Next", "Tab"]
 
     var body: some View {
         GeometryReader { geo in
@@ -79,6 +79,11 @@ struct RootView: View {
                 .environment(store)
                 .chordflowSheet()
         }
+        .sheet(isPresented: Binding(get: { store.showHandbook }, set: { store.showHandbook = $0 })) {
+            HandbookSheet()
+                .environment(store)
+                .chordflowSheet([.medium, .large])
+        }
         .onChange(of: store.panelRequest) { _, req in
             guard let req else { return }
             withAnimation(.settle) { pagerPosition = req }
@@ -97,7 +102,7 @@ struct RootView: View {
 
     private var tabBar: some View {
         GeometryReader { g in
-            let w = (g.size.width - 8) / 4
+            let w = (g.size.width - 8) / CGFloat(tabs.count)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color.white.opacity(0.95))
@@ -110,8 +115,8 @@ struct RootView: View {
                             store.goPanel(i)
                         } label: {
                             Text(tabs[i])
-                                .font(.onest(13.5, .bold))
-                                .em(-0.01, 13.5)
+                                .font(.onest(13, .bold))
+                                .em(-0.01, 13)
                                 .foregroundStyle(store.panel == i ? Color.ink : .white.opacity(0.85))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .contentShape(Rectangle())
@@ -134,13 +139,14 @@ struct RootView: View {
                 NeckPanel().containerRelativeFrame(.horizontal).id(1)
                 KeyPanel().containerRelativeFrame(.horizontal).id(2)
                 NextPanel().containerRelativeFrame(.horizontal).id(3)
+                TabPanel().containerRelativeFrame(.horizontal).id(4)
             }
             .scrollTargetLayout()
             .onGeometryChange(for: CGFloat.self) { proxy in
                 let f = proxy.frame(in: .scrollView)
-                return -f.minX / max(1, f.width / 4)
+                return -f.minX / max(1, f.width / 5)
             } action: { f in
-                pageFraction = min(3, max(0, f))
+                pageFraction = min(4, max(0, f))
                 let p = Int(pageFraction.rounded())
                 if p != store.panel { store.panel = p }
             }
@@ -205,7 +211,7 @@ struct ToastView: View {
         HStack(spacing: 12) {
             Circle().fill(toast.dot).frame(width: 10, height: 10)
             Text(toast.text).font(.onest(13.5, .bold)).lineLimit(1)
-            Button("View") { store.dismissToastAndView() }
+            Button(toast.action == .undo ? "Undo" : "View") { store.toastAction() }
                 .font(.onest(12.5, .bold))
                 .padding(.horizontal, 14)
                 .frame(height: 32)

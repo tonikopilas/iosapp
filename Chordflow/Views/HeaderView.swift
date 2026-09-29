@@ -16,7 +16,13 @@ struct HeaderView: View {
                         .foregroundStyle(.white)
                         .tint(.accent)
                         .submitLabel(.done)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .focused(titleFocused)
+                }
+                iconButton("book.fill", label: "Theory handbook") {
+                    titleFocused.wrappedValue = false
+                    store.showHandbook = true
                 }
                 iconButton("music.note.list", label: "Your songs") {
                     titleFocused.wrappedValue = false
